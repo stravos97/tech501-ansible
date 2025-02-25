@@ -1,0 +1,14 @@
+- name: Update and Upgrade System Packages
+  hosts: all
+  become: true
+  tasks:
+    - name: Update the APT package index
+      ansible.builtin.apt:
+        update_cache: yes
+      register: update_result
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+      when: update_result.changed
+
