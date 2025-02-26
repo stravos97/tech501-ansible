@@ -1,0 +1,73 @@
+---
+- name: Install Node.js and NPM
+  hosts: ec2-app-vm
+  become: true
+  tasks:
+    - name: Remove existing Node.js and related packages to avoid conflicts
+      apt:
+        name: "{{ item }}"
+        state: absent
+        purge: yes
+      loop:
+        - nodejs
+        - libnode-dev
+        - npm
+      ignore_errors: true
+
+    - name: Install Node.js repository
+      shell: "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+      args:
+        warn: false
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+        dpkg_options: "force-overwrite"
+
+    - name: Check Node.js version
+      command: node --version
+      register: node_version
+      changed_when: false
+
+    - name: Check npm version
+      command: npm --version
+      register: npm_version
+      changed_when: false
+
+    - name: Install PM2
+      npm:
+        name: pm2
+        global: yes
+
+    - name: Check PM2 version
+      command: pm2 --version
+      register: pm2_version
+      changed_when: false
+
+    - name: Make directory for the app
+      file: /repo
+      state: directory
+
+    - name: Clone the app repository to the target node
+      git:
+        repo: https://github.com/stravos97/node-sparta-test-app.git
+        dest: /repo
+
+    - name: Display versions
+      debug:
+        msg:
+          - "Node.js version: {{ node_version.stdout }}"
+          - "npm version: {{ npm_version.stdout }}"
+          - "PM2 version: {{ pm2_version.stdout }}"
+
+    - name: Navigate to the app folder and do npm install
+      command: npm install
+      args:
+        chdir: /repo/app
+
+    - name: Navigate to the app folder and start the app
+      command: pm2 start app.js
+      args:
+        chdir: /repo/app

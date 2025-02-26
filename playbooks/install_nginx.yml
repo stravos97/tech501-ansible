@@ -1,7 +1,7 @@
 ---
 - name: Install and Configure Nginx
   hosts: ec2-app-vm
-  become: yes
+  become: true
   tasks:
     - name: Update the APT package index
       apt:
