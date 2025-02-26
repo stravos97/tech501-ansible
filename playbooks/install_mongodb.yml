@@ -1,5 +1,5 @@
 ---
-- name: Install MongoDB 7.0.6
+- name: Install MongoDB 7.0.6 on Ubuntu (Jammy)
   hosts: db
   become: true
   tasks:
@@ -12,9 +12,9 @@
         state: present
         update_cache: yes
 
-    - name: Create keyring directory
+    - name: Create trusted key directory for apt
       ansible.builtin.file:
-        path: /usr/share/keyrings
+        path: /etc/apt/trusted.gpg.d
         state: directory
         mode: "0755"
 
@@ -24,17 +24,17 @@
         dest: /tmp/mongodb-server-7.0.asc
         mode: "0644"
 
-    - name: Import MongoDB GPG key
+    - name: Import MongoDB GPG key into trusted.gpg.d
       ansible.builtin.shell: |
-        cat /tmp/mongodb-server-7.0.asc | gpg --dearmor > /usr/share/keyrings/mongodb-server-7.0.gpg
-        chmod 644 /usr/share/keyrings/mongodb-server-7.0.gpg
+        cat /tmp/mongodb-server-7.0.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
+        chmod 644 /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
       args:
-        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
+        creates: /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
 
     - name: Add MongoDB repository list file
       ansible.builtin.copy:
         dest: /etc/apt/sources.list.d/mongodb-org-7.0.list
-        content: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
+        content: "deb [ arch=amd64,arm64 signed-by=/etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
         mode: "0644"
         owner: root
         group: root
