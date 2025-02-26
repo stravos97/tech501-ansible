@@ -2,14 +2,29 @@
 - name: Install Node.js and NPM
   hosts: ec2-app-vm
   become: true
+  vars:
+    nodejs_version: "20.x"
+    nodejs_keyring: /usr/share/keyrings/nodesource.gpg
+    force_reinstall: false
   tasks:
-    - name: Check if Node.js is already installed
-      command: which node
-      register: node_installed
+    - name: Ensure apt-transport-https is installed
+      apt:
+        name: apt-transport-https
+        state: present
+        update_cache: yes
+
+    - name: Check if Node.js is already installed and get version
+      command: node --version
+      register: node_check
       changed_when: false
       failed_when: false
+      check_mode: no
 
-    - name: Remove existing Node.js and related packages to avoid conflicts
+    - name: Set node installation status
+      set_fact:
+        node_needs_install: "{{ node_check.rc != 0 or 'v20.' not in node_check.stdout | default('') or force_reinstall }}"
+
+    - name: Ensure previous Node.js packages are removed if needed
       apt:
         name: "{{ item }}"
         state: absent
@@ -18,104 +33,104 @@
         - nodejs
         - libnode-dev
         - npm
-      ignore_errors: true
-      when: node_installed.rc != 0 or force_reinstall | default(false)
+      when: node_needs_install
 
-    - name: Install Node.js repository
-      shell: "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
-      args:
-        warn: false
-      when: node_installed.rc != 0 or force_reinstall | default(false)
+    - name: Add NodeSource GPG key
+      apt_key:
+        url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
+        state: present
+        keyring: "{{ nodejs_keyring }}"
+      when: node_needs_install
+
+    - name: Add NodeSource repository
+      apt_repository:
+        repo: "deb [signed-by={{ nodejs_keyring }}] https://deb.nodesource.com/node_{{ nodejs_version }} {{ ansible_distribution_release }} main"
+        state: present
+        filename: nodesource
+      when: node_needs_install
 
     - name: Install Node.js
       apt:
         name: nodejs
         state: present
         update_cache: yes
-        dpkg_options: "force-overwrite"
-      when: node_installed.rc != 0 or force_reinstall | default(false)
+      register: nodejs_install
+      when: node_needs_install
 
-    - name: Check Node.js version
-      command: node --version
-      register: node_version
-      changed_when: false
+    # - name: Get Node.js version
+    #   command: node --version
+    #   register: node_version
+    #   changed_when: false
+    #   check_mode: no
 
-    - name: Check npm version
-      command: npm --version
-      register: npm_version
-      changed_when: false
+    - name: Install npm dependencies
+      npm:
+        path: /repo/app
+        state: present
+      register: npm_install
 
-    - name: Check if PM2 is already installed
-      command: which pm2
-      register: pm2_installed
-      changed_when: false
-      failed_when: false
+    # - name: Get npm version
+    #   command: npm --version
+    #   register: npm_version
+    #   changed_when: false
+    #   check_mode: no
 
-    - name: Install PM2
+    - name: Install PM2 globally
       npm:
         name: pm2
         global: yes
-      when: pm2_installed.rc != 0
+        state: present
+      register: pm2_install
 
-    - name: Check PM2 version
-      command: pm2 --version
-      register: pm2_version
-      changed_when: false
-
-    - name: Make directory for the app
+    # - name: Get PM2 version
+    #   command: pm2 --version
+    #   register: pm2_version
+    #   changed_when: false
+    #   check_mode: no
+      
+    - name: Create directory for the app
       file:
         path: /repo
         state: directory
+        mode: '0755'
 
-    - name: Check if repository already exists
-      stat:
-        path: /repo/.git
-      register: repo_exists
-
-    - name: Clone the app repository to the target node
+    - name: Clone or update repository
       git:
         repo: https://github.com/stravos97/node-sparta-test-app.git
         dest: /repo
         update: yes
         force: no
-      when: not repo_exists.stat.exists
-
-    - name: Update the repository if it already exists
-      git:
-        repo: https://github.com/stravos97/node-sparta-test-app.git
-        dest: /repo
-        update: yes
-        force: no
-      when: repo_exists.stat.exists
-
-    - name: Display versions
-      debug:
-        msg:
-          - "Node.js version: {{ node_version.stdout }}"
-          - "npm version: {{ npm_version.stdout }}"
-          - "PM2 version: {{ pm2_version.stdout }}"
+      register: git_result
 
     - name: Navigate to the app folder and do npm install
       command: npm install
       args:
         chdir: /repo/app
 
-    - name: Check if app is already running in PM2
-      shell: pm2 list | grep -c "app" || true
-      args:
-        chdir: /repo/app
-      register: pm2_app_running
-      changed_when: false
+    - name: Check if app is in PM2 process list
+      set_fact:
+        app_running: "{{ pm2_apps | selectattr('name', 'equalto', 'app') | list | length > 0 }}"
       failed_when: false
 
     - name: Start the app with PM2 if not running
       command: pm2 start app.js
       args:
         chdir: /repo/app
-      when: pm2_app_running.stdout == "0"
+      when: not app_running | bool
 
     - name: Restart the app with PM2 if already running
-      command: pm2 restart app.js
+      command: pm2 reload app
       args:
         chdir: /repo/app
-      when: pm2_app_running.stdout != "0"
+      when: 
+       - app_running | bool
+       - git_result.changed or npm_install.changed
+
+    - name: Display versions and results
+      debug:
+        msg:
+          - "Node.js version: {{ node_version.stdout }}"
+          - "npm version: {{ npm_version.stdout }}"
+          - "PM2 version: {{ pm2_version.stdout }}"
+          - "Git clone/update result: {{ 'Changed' if git_result.changed else 'No change' }}"
+          - "npm install result: {{ 'Changed' if npm_install.changed else 'No change' }}"
