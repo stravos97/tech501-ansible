@@ -7,11 +7,11 @@
     nodejs_keyring: /usr/share/keyrings/nodesource.gpg
     force_reinstall: false
   tasks:
-    - name: Ensure apt-transport-https is installed
-      apt:
-        name: apt-transport-https
-        state: present
-        update_cache: yes
+    # - name: Ensure apt-transport-https is installed
+    #   apt:
+    #     name: apt-transport-https
+    #     state: present
+    #     update_cache: yes
 
     - name: Check if Node.js is already installed and get version
       command: node --version
@@ -57,17 +57,17 @@
       register: nodejs_install
       when: node_needs_install
 
-    # - name: Get Node.js version
-    #   command: node --version
-    #   register: node_version
-    #   changed_when: false
-    #   check_mode: no
+    - name: Get Node.js version
+      command: node --version
+      register: node_version
+      changed_when: false
+      check_mode: no
 
-    # - name: Get npm version
-    #   command: npm --version
-    #   register: npm_version
-    #   changed_when: false
-    #   check_mode: no
+    - name: Get npm version
+      command: npm --version
+      register: npm_version
+      changed_when: false
+      check_mode: no
 
     - name: Install PM2 globally
       npm:
@@ -76,11 +76,11 @@
         state: present
       register: pm2_install
 
-    # - name: Get PM2 version
-    #   command: pm2 --version
-    #   register: pm2_version
-    #   changed_when: false
-    #   check_mode: no
+    - name: Get PM2 version
+      command: pm2 --version
+      register: pm2_version
+      changed_when: false
+      check_mode: no
 
     - name: Create directory for the app
       file:
