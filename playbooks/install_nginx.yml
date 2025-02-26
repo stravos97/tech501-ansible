@@ -3,20 +3,43 @@
   hosts: ec2-app-vm
   become: true
   tasks:
-    - name: Update the APT package index
+    # Use package_facts to get current installed packages
+    - name: Gather package facts
+      package_facts:
+        manager: auto
+
+    - name: Update APT package index
       apt:
         update_cache: yes
-      register: update_result
-    - name: Gather host facts
-      setup:
-        gather_subset: all
-    - name: Install nginx package
+        cache_valid_time: 3600 # Only update if cache is more than 1 hour old
+
+    - name: Install Nginx package
       apt:
         name: nginx
         state: present
-        update_cache: yes
-    - name: Start nginx service
+      register: nginx_install
+
+    - name: Ensure Nginx service is enabled and started
       service:
         name: nginx
         state: started
         enabled: yes
+      register: nginx_service
+
+    - name: Collect Nginx service facts
+      service_facts:
+
+    - name: Check if Nginx configuration exists
+      stat:
+        path: /etc/nginx/nginx.conf
+      register: nginx_conf
+
+    - name: Display Nginx information
+      debug:
+        msg:
+          - "Nginx installed: {{ 'Yes' if 'nginx' in ansible_facts.packages else 'No' }}"
+          - "Nginx version: {{ ansible_facts.packages['nginx'][0].version if 'nginx' in ansible_facts.packages else 'Not installed' }}"
+          - "Nginx service status: {{ 'Active' if ansible_facts.services['nginx.service'].state == 'running' else 'Not running' }}"
+          - "Nginx configuration exists: {{ nginx_conf.stat.exists }}"
+          - "Installation changed: {{ nginx_install.changed }}"
+          - "Service status changed: {{ nginx_service.changed }}"
