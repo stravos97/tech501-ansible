@@ -47,8 +47,9 @@
       changed_when: false
 
     - name: Make directory for the app
-      file: /repo
-      state: directory
+      file:
+        path: /repo
+        state: directory
 
     - name: Clone the app repository to the target node
       git:
