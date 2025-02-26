@@ -31,13 +31,6 @@
       args:
         creates: /usr/share/keyrings/mongodb-server-7.0.gpg
 
-    - name: Add MongoDB key to apt trusted keys
-      ansible.builtin.shell: |
-        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | apt-key add -
-      register: key_import
-      changed_when: key_import.rc == 0
-      failed_when: key_import.rc != 0
-
     - name: Add MongoDB repository list file
       ansible.builtin.copy:
         dest: /etc/apt/sources.list.d/mongodb-org-7.0.list
@@ -63,15 +56,3 @@
           - mongodb-org-tools=7.0.6
         state: present
         update_cache: no
-
-    # Uncomment these if you want to ensure MongoDB is running
-    # - name: Start MongoDB service
-    #   ansible.builtin.service:
-    #     name: mongod
-    #     state: started
-    #     enabled: yes
-    #
-    # - name: Ensure MongoDB is running
-    #   ansible.builtin.wait_for:
-    #     port: 27017
-    #     timeout: 60
