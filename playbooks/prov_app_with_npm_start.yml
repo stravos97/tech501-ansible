@@ -101,14 +101,14 @@
         chdir: /repo/app
 
     - name: Check if app is already running in PM2
-      shell: pm2 id app.js | grep -v 'id' | grep -v '---' | wc -l
+      shell: pm2 list | grep -c "app" || true
       args:
         chdir: /repo/app
       register: pm2_app_running
       changed_when: false
       failed_when: false
 
-    - name: Start the app with PM2
+    - name: Start the app with PM2 if not running
       command: pm2 start app.js
       args:
         chdir: /repo/app
