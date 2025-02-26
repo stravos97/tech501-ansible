@@ -1,34 +1,56 @@
 ---
 - name: Install app dependencies and run app
-
-  hosts: db # Only targets hosts in the 'db' group
-
-  become: true # Requires root privileges
-
+  hosts: db
+  become: yes
   tasks:
-    - name: Import MongoDB public GPG key
+    - name: Remove any existing MongoDB repository files
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/mongodb-org-7.0.list"
+        state: absent
 
-      ansible.builtin.apt_key:
-        url: https://pgp.mongodb.com/server-7.0.asc
+    - name: Remove MongoDB entries from main sources.list
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list
+        regexp: "deb.*mongodb.*"
+        state: absent
 
-        state: present
+    - name: Import MongoDB GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+        --dearmor
+      args:
+        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
 
-    - name: Add MongoDB 7.0 repository
-
+    - name: Add MongoDB repository
       ansible.builtin.apt_repository:
-        repo: "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
-
+        repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
         state: present
+        filename: mongodb-org-7.0
 
-        filename: mongodb-org-7.0.list # Creates separate source file
-
-        update_cache: yes # Automatically runs apt-get update
-
-    - name: Install MongoDB 7.0 package
-
+    - name: Update apt cache
       ansible.builtin.apt:
-        name: mongodb-org
+        update_cache: yes
+        cache_valid_time: 0
 
+    - name: Install MongoDB 7.0.6 packages
+      ansible.builtin.apt:
+        name:
+          - mongodb-org=7.0.6
+          - mongodb-org-database=7.0.6
+          - mongodb-org-server=7.0.6
+          - mongodb-mongosh
+          - mongodb-org-mongos=7.0.6
+          - mongodb-org-tools=7.0.6
         state: present
 
-        update_cache: no # Already updated in previous task
+    - name: Hold MongoDB packages at installed version
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - mongodb-org
+        - mongodb-org-database
+        - mongodb-org-server
+        - mongodb-org-mongos
+        - mongodb-org-tools
