@@ -1,6 +1,6 @@
 ---
 - name: Install and Configure Nginx
-  hosts: ec2-app-vm
+  hosts: web
   become: true
   tasks:
     # Use package_facts to get current installed packages

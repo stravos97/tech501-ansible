@@ -6,6 +6,8 @@ all:
           ansible_host: 172.31.49.242
           ansible_user: ubuntu
           ansible_ssh_private_key_file: ~/.ssh/id_rsa
+    db:
+      hosts:
         ec2-db-vm:
           ansible_host: 172.31.57.64
           ansible_user: ubuntu

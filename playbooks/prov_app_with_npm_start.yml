@@ -1,6 +1,6 @@
 ---
 - name: Install Node.js and NPM
-  hosts: ec2-app-vm
+  hosts: web
   become: true
   vars:
     nodejs_version: "20.x"

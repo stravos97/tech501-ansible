@@ -1,5 +1,5 @@
 - name: Update and Upgrade System Packages
-  hosts: ec2-app-vm
+  hosts: all
   become: true
   tasks:
     - name: Update the APT package index
