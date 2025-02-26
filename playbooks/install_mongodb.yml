@@ -12,38 +12,32 @@
         state: present
         update_cache: yes
 
-    - name: Create trusted key directory for apt
+    - name: Create keyring directory
       ansible.builtin.file:
-        path: /etc/apt/trusted.gpg.d
+        path: /usr/share/keyrings
         state: directory
         mode: "0755"
 
-    - name: Download MongoDB GPG key
-      ansible.builtin.get_url:
-        url: https://www.mongodb.org/static/pgp/server-7.0.asc
-        dest: /tmp/mongodb-server-7.0.asc
-        mode: "0644"
-
-    - name: Import MongoDB GPG key into trusted.gpg.d
+    - name: Import MongoDB GPG key properly
       ansible.builtin.shell: |
-        cat /tmp/mongodb-server-7.0.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
-        chmod 644 /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-archive-keyring.gpg
+        chmod 644 /usr/share/keyrings/mongodb-archive-keyring.gpg
       args:
-        creates: /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
+        creates: /usr/share/keyrings/mongodb-archive-keyring.gpg
 
     - name: Add MongoDB repository list file
       ansible.builtin.copy:
         dest: /etc/apt/sources.list.d/mongodb-org-7.0.list
-        content: "deb [ arch=amd64,arm64 signed-by=/etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
+        content: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-archive-keyring.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
         mode: "0644"
         owner: root
         group: root
       register: repo_file
 
-    - name: Update apt cache
+    - name: Force apt cache update
       ansible.builtin.apt:
         update_cache: yes
-      when: repo_file.changed
+        cache_valid_time: 3600
 
     - name: Install MongoDB packages
       ansible.builtin.apt:
