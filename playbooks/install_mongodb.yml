@@ -3,14 +3,14 @@
   hosts: db
   become: true
   tasks:
-    # - name: Ensure apt-transport-https and curl are installed
-    #   ansible.builtin.apt:
-    #     name:
-    #       - apt-transport-https
-    #       - curl
-    #       - gnupg
-    #     state: present
-    #     update_cache: yes
+    - name: Ensure required packages are installed
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - curl
+          - gnupg
+        state: present
+        update_cache: yes
 
     - name: Create keyring directory
       ansible.builtin.file:
@@ -20,11 +20,9 @@
 
     - name: Add MongoDB GPG key
       ansible.builtin.shell: |
-        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
       args:
-        creates: /usr/share/keyrings/mongodb-server-7.0.gpg  # Makes it idempotent
-      register: gpg_import
-      changed_when: gpg_import.rc == 0
+        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
 
     - name: Add MongoDB repository list file
       ansible.builtin.copy:
@@ -34,7 +32,7 @@
         owner: root
         group: root
       register: repo_file
-        
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: yes
@@ -50,9 +48,8 @@
           - mongodb-org-mongos=7.0.6
           - mongodb-org-tools=7.0.6
         state: present
-        update_cache: no  # Already updated above
-        cache_valid_time: 3600  # Makes it more idempotent
-        
+        update_cache: no
+
     # Uncomment these if you want to ensure MongoDB is running
     # - name: Start MongoDB service
     #   ansible.builtin.service:
