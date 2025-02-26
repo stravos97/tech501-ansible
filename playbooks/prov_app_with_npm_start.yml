@@ -3,6 +3,12 @@
   hosts: ec2-app-vm
   become: true
   tasks:
+    - name: Check if Node.js is already installed
+      command: which node
+      register: node_installed
+      changed_when: false
+      failed_when: false
+
     - name: Remove existing Node.js and related packages to avoid conflicts
       apt:
         name: "{{ item }}"
@@ -13,11 +19,13 @@
         - libnode-dev
         - npm
       ignore_errors: true
+      when: node_installed.rc != 0 or force_reinstall | default(false)
 
     - name: Install Node.js repository
       shell: "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
       args:
         warn: false
+      when: node_installed.rc != 0 or force_reinstall | default(false)
 
     - name: Install Node.js
       apt:
@@ -25,6 +33,7 @@
         state: present
         update_cache: yes
         dpkg_options: "force-overwrite"
+      when: node_installed.rc != 0 or force_reinstall | default(false)
 
     - name: Check Node.js version
       command: node --version
@@ -36,10 +45,17 @@
       register: npm_version
       changed_when: false
 
+    - name: Check if PM2 is already installed
+      command: which pm2
+      register: pm2_installed
+      changed_when: false
+      failed_when: false
+
     - name: Install PM2
       npm:
         name: pm2
         global: yes
+      when: pm2_installed.rc != 0
 
     - name: Check PM2 version
       command: pm2 --version
@@ -51,10 +67,26 @@
         path: /repo
         state: directory
 
+    - name: Check if repository already exists
+      stat:
+        path: /repo/.git
+      register: repo_exists
+
     - name: Clone the app repository to the target node
       git:
         repo: https://github.com/stravos97/node-sparta-test-app.git
         dest: /repo
+        update: yes
+        force: no
+      when: not repo_exists.stat.exists
+
+    - name: Update the repository if it already exists
+      git:
+        repo: https://github.com/stravos97/node-sparta-test-app.git
+        dest: /repo
+        update: yes
+        force: no
+      when: repo_exists.stat.exists
 
     - name: Display versions
       debug:
@@ -68,7 +100,22 @@
       args:
         chdir: /repo/app
 
-    - name: Navigate to the app folder and start the app
+    - name: Check if app is already running in PM2
+      shell: pm2 id app.js | grep -v 'id' | grep -v '---' | wc -l
+      args:
+        chdir: /repo/app
+      register: pm2_app_running
+      changed_when: false
+      failed_when: false
+
+    - name: Start the app with PM2
       command: pm2 start app.js
       args:
         chdir: /repo/app
+      when: pm2_app_running.stdout == "0"
+
+    - name: Restart the app with PM2 if already running
+      command: pm2 restart app.js
+      args:
+        chdir: /repo/app
+      when: pm2_app_running.stdout != "0"
