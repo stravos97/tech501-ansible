@@ -3,10 +3,10 @@ all:
     web:
       hosts:
         ec2-app-vm:
-          ansible_host: 18.203.160.138
+          ansible_host: 172.31.49.242
           ansible_user: ubuntu
           ansible_ssh_private_key_file: ~/.ssh/id_rsa
         ec2-db-vm:
-          ansible_host: 3.250.44.162
+          ansible_host: 172.31.57.64
           ansible_user: ubuntu
           ansible_ssh_private_key_file: ~/.ssh/id_rsa
