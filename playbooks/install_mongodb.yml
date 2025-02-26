@@ -1,45 +1,35 @@
 ---
-- name: Install MongoDB 7.0.6 on Ubuntu (Jammy)
+- name: Install MongoDB 7.0.14 on Ubuntu (Jammy) following official documentation
   hosts: db
   become: true
   tasks:
-    - name: Ensure required packages are installed
+    - name: Install prerequisites (gnupg and curl)
       ansible.builtin.apt:
         name:
-          - apt-transport-https
-          - curl
           - gnupg
+          - curl
         state: present
         update_cache: yes
 
-    - name: Create keyring directory
-      ansible.builtin.file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: "0755"
-
-    - name: Import MongoDB GPG key properly
+    - name: Import MongoDB public GPG key
       ansible.builtin.shell: |
-        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-archive-keyring.gpg
-        chmod 644 /usr/share/keyrings/mongodb-archive-keyring.gpg
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+        --dearmor
       args:
-        creates: /usr/share/keyrings/mongodb-archive-keyring.gpg
+        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
 
-    - name: Add MongoDB repository list file
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/mongodb-org-7.0.list
-        content: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-archive-keyring.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
-        mode: "0644"
-        owner: root
-        group: root
-      register: repo_file
+    - name: Create MongoDB repository list file
+      ansible.builtin.shell: |
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+      args:
+        creates: /etc/apt/sources.list.d/mongodb-org-7.0.list
 
-    - name: Force apt cache update
+    - name: Reload package database
       ansible.builtin.apt:
         update_cache: yes
-        cache_valid_time: 3600
 
-    - name: Install MongoDB packages
+    - name: Install MongoDB packages with specific version
       ansible.builtin.apt:
         name:
           - mongodb-org=7.0.6
@@ -49,4 +39,29 @@
           - mongodb-org-mongos=7.0.6
           - mongodb-org-tools=7.0.6
         state: present
-        update_cache: no
+
+    - name: Pin MongoDB packages to prevent unintended upgrades
+      ansible.builtin.shell: |
+        echo "mongodb-org hold" | dpkg --set-selections
+        echo "mongodb-org-database hold" | dpkg --set-selections
+        echo "mongodb-org-server hold" | dpkg --set-selections
+        echo "mongodb-mongosh hold" | dpkg --set-selections
+        echo "mongodb-org-mongos hold" | dpkg --set-selections
+        echo "mongodb-org-tools hold" | dpkg --set-selections
+      changed_when: false
+
+    - name: Start MongoDB service
+      ansible.builtin.systemd:
+        name: mongod
+        state: started
+        enabled: yes
+
+    - name: Verify MongoDB is running
+      ansible.builtin.systemd:
+        name: mongod
+        state: started
+      register: mongodb_status
+
+    - name: Display MongoDB status
+      ansible.builtin.debug:
+        msg: "MongoDB service status: {{ 'running' if mongodb_status.status.ActiveState == 'active' else 'not running' }}"
