@@ -63,12 +63,6 @@
     #   changed_when: false
     #   check_mode: no
 
-    - name: Install npm dependencies
-      npm:
-        path: /repo/app
-        state: present
-      register: npm_install
-
     # - name: Get npm version
     #   command: npm --version
     #   register: npm_version
@@ -87,12 +81,12 @@
     #   register: pm2_version
     #   changed_when: false
     #   check_mode: no
-      
+
     - name: Create directory for the app
       file:
         path: /repo
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Clone or update repository
       git:
@@ -102,31 +96,38 @@
         force: no
       register: git_result
 
-    - name: Navigate to the app folder and do npm install
-      command: npm install
-      args:
-        chdir: /repo/app
+    - name: Install npm dependencies
+      npm:
+        path: /repo/app
+        state: present
+      register: npm_install
 
-    - name: Check if app is in PM2 process list
-      set_fact:
-        app_running: "{{ pm2_apps | selectattr('name', 'equalto', 'app') | list | length > 0 }}"
+    - name: Check if app is running in PM2
+      shell: pm2 list | grep -q " app " || echo ""
+      register: app_check
+      changed_when: false
       failed_when: false
+      check_mode: no
 
-    - name: Start the app with PM2 if not running
+    - name: Set app running status
+      set_fact:
+        app_running: "{{ app_check.rc == 0 }}"
+
+    - name: Start app with PM2 if not running
       command: pm2 start app.js
       args:
         chdir: /repo/app
       when: not app_running | bool
 
-    - name: Restart the app with PM2 if already running
+    - name: Reload app with PM2 if already running and code changed
       command: pm2 reload app
       args:
         chdir: /repo/app
-      when: 
-       - app_running | bool
-       - git_result.changed or npm_install.changed
+      when:
+        - app_running | bool
+        - git_result.changed or npm_install.changed
 
-    - name: Display versions and results
+    - name: Display versions
       debug:
         msg:
           - "Node.js version: {{ node_version.stdout }}"
