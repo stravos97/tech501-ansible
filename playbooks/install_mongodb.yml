@@ -95,7 +95,7 @@
           - "  MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
           - "  Installation changed anything: {{ install_packages_result.changed }}"
           - ""
-          - "Package Versioning Status:"
-          - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
-          - "  Hold status changed: {{ hold_packages_result.changed }}"
+          # - "Package Versioning Status:"
+          # - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
+          # - "  Hold status changed: {{ hold_packages_result.changed }}"
       tags: always
