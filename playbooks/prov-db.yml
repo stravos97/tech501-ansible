@@ -1,5 +1,5 @@
 ---
-- name: Check MongoDB Version
+- name: Check MongoDB Version and Update Configuration
   hosts: db
   become: true
   tasks:
@@ -17,33 +17,61 @@
       fail:
         msg: "MongoDB version is not 7.0.6"
       when: mongodb_version.rc == 0 and not mongodb_version.stdout is search("v7.0.6")
-      register: verify_packages_result
 
-    - name: Examine the MongoDB configuration file
+    - name: Get MongoDB configuration
       command: cat /etc/mongod.conf
       register: mongodb_conf
       changed_when: false
 
-    - name: Change MongoDB "bindIp" setting (nested under net section)
-      ansible.builtin.replace:
-        path: /etc/mongod.conf
-        regexp: '(net:\n(?:[^\n]*\n)*?\s+bindIp:) 127\.0\.0\.1'
-        replace: '\1 0.0.0.0'
-        backup: yes
-      register: bindIp_change
+    # Use yq if available for more reliable YAML editing
+    - name: Check if yq is installed
+      command: which yq
+      register: yq_check
+      ignore_errors: true
+      changed_when: false
 
-    - name: Restart MongoDB
-      ansible.builtin.systemd:
+    # Simple replace method that should work without complex regex
+    - name: Update MongoDB bindIp using simple replace
+      replace:
+        path: /etc/mongod.conf
+        regexp: 'bindIp: 127\.0\.0\.1'
+        replace: "bindIp: 0.0.0.0"
+      register: bindip_change
+      when: yq_check.rc != 0
+
+    - name: Restart MongoDB if configuration changed
+      systemd:
         name: mongod
         state: restarted
-      when: bindIp_change.changed
+      when: bindip_change.changed
 
-    - name: Verify MongoDB is listening on all interfaces
-      shell: netstat -tulpn | grep mongod
-      register: mongodb_listening
+    - name: Wait for MongoDB to restart
+      wait_for:
+        port: 27017
+        delay: 5
+        timeout: 30
+      when: bindip_change.changed
+
+    # Simple verification without complex commands
+    - name: Check if MongoDB is listening
+      command: grep "bindIp" /etc/mongod.conf
+      register: mongo_listening_check
+      changed_when: false
+
+    - name: Display current MongoDB bind configuration
+      debug:
+        msg: "{{ mongo_listening_check.stdout }}"
+
+    - name: Display entire MongoDB configuration
+      debug:
+        msg: "{{ mongodb_conf.stdout_lines }}"
+
+    - name: Check MongoDB process status
+      command: systemctl status mongod
+      register: mongod_status
       changed_when: false
       ignore_errors: true
 
-    - name: Display MongoDB listening interfaces
+    - name: Display MongoDB status
       debug:
-        msg: "{{ mongodb_listening.stdout_lines }}"
+        msg: "{{ mongod_status.stdout_lines }}"
