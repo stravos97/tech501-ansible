@@ -1,0 +1,449 @@
+---
+# First play: Configure and provision the database on 'db' group
+- name: Install app dependencies and run app
+  hosts: db
+  become: true
+  tasks:
+    - name: Check if MongoDB repository exists with correct content
+      ansible.builtin.command: grep -q "deb.*mongodb.*7.0.*multiverse" /etc/apt/sources.list.d/mongodb-org-7.0.list
+      register: repo_check
+      failed_when: false
+      changed_when: false
+      check_mode: no
+
+    - name: Import MongoDB GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+        --dearmor
+      args:
+        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
+      register: import_gpg_result
+
+    - name: Remove any existing MongoDB repository files (only if content is incorrect)
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/mongodb-org-7.0.list"
+        state: absent
+      when: repo_check.rc != 0
+      register: remove_repo_result
+
+    - name: Remove MongoDB entries from main sources.list
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list
+        regexp: "deb.*mongodb.*"
+        state: absent
+      register: remove_entries_result
+
+    - name: Add MongoDB repository (only if needed)
+      ansible.builtin.apt_repository:
+        repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
+        state: present
+        filename: mongodb-org-7.0
+      when: repo_check.rc != 0
+      register: add_repo_result
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: update_cache_result
+
+    - name: Install MongoDB 7.0.6 packages
+      ansible.builtin.apt:
+        name:
+          - mongodb-org=7.0.6
+          - mongodb-org-database=7.0.6
+          - mongodb-org-server=7.0.6
+          - mongodb-mongosh
+          - mongodb-org-mongos=7.0.6
+          - mongodb-org-tools=7.0.6
+        state: present
+        force_apt_get: true
+        install_recommends: false
+      register: install_packages_result
+
+    # - name: Hold MongoDB packages at installed version
+    #   ansible.builtin.dpkg_selections:
+    #     name: "{{ item }}"
+    #     selection: hold
+    #   loop:
+    #     - mongodb-org
+    #     - mongodb-org-database
+    #     - mongodb-org-server
+    #     - mongodb-org-mongos
+    #     - mongodb-org-tools
+    #   register: hold_packages_result
+
+    - name: Display debug information for all tasks
+      ansible.builtin.debug:
+        msg:
+          - "MongoDB Repository Status:"
+          - "  Repository file exists: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository content valid: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository check return code: {{ repo_check.rc }}"
+          - ""
+          - "MongoDB GPG Key Status:"
+          - "  GPG key installed: {{ 'Yes' if import_gpg_result is not changed else 'No' }}"
+          - "  GPG key installation changed: {{ import_gpg_result.changed }}"
+          - ""
+          - "Repository Management Status:"
+          - "  Repository file removed: {{ remove_repo_result.changed | default('Task skipped') }}"
+          - "  Sources.list entries removed: {{ remove_entries_result.changed }}"
+          - "  Repository file added: {{ add_repo_result.changed | default('Task skipped') }}"
+          - ""
+          - "Package Management Status:"
+          - "  Apt cache updated: {{ update_cache_result.cache_updated }}"
+          - "  MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
+          - "  Installation changed anything: {{ install_packages_result.changed }}"
+          - ""
+          # - "Package Versioning Status:"
+          # - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
+          # - "  Hold status changed: {{ hold_packages_result.changed }}"
+      tags: always
+
+    # Additional MongoDB configuration tasks from prov-db.yml
+    - name: Check MongoDB version
+      command: mongod --version
+      register: mongodb_version
+      ignore_errors: true
+      
+    - name: Display MongoDB version
+      debug:
+        msg: "MongoDB version {{ mongodb_version.stdout }}"
+      when: mongodb_version.rc == 0
+      
+    - name: Verify MongoDB version is 7.0.6
+      fail:
+        msg: "MongoDB version is not 7.0.6"
+      when: mongodb_version.rc == 0 and not mongodb_version.stdout is search("v7.0.6")
+      
+    - name: Get MongoDB configuration
+      command: cat /etc/mongod.conf
+      register: mongodb_conf
+      changed_when: false
+      
+    - name: Update MongoDB bindIp using simple replace
+      replace:
+        path: /etc/mongod.conf
+        regexp: 'bindIp: 127\.0\.0\.1'
+        replace: "bindIp: 0.0.0.0"
+      register: bindip_change
+      
+    - name: Restart MongoDB if configuration changed
+      systemd:
+        name: mongod
+        state: restarted
+      when: bindip_change.changed
+      
+    - name: Wait for MongoDB to restart
+      wait_for:
+        port: 27017
+        delay: 5
+        timeout: 30
+      when: bindip_change.changed
+      
+    - name: Check if MongoDB is listening
+      command: grep "bindIp" /etc/mongod.conf
+      register: mongo_listening_check
+      changed_when: false
+      
+    - name: Display current MongoDB bind configuration
+      debug:
+        msg: "{{ mongo_listening_check.stdout }}"
+      
+    - name: Display entire MongoDB configuration
+      debug:
+        msg: "{{ mongodb_conf.stdout_lines }}"
+      
+    - name: Check MongoDB process status
+      command: systemctl status mongod
+      register: mongod_status
+      changed_when: false
+      ignore_errors: true
+      
+    - name: Display MongoDB status
+      debug:
+        msg: "{{ mongod_status.stdout_lines }}"
+
+# Second play: Configure and provision the app on 'web' group
+- name: Install Node.js and NPM
+  hosts: web
+  become: true
+  vars:
+    nodejs_version: "20.x"
+    nodejs_keyring: /usr/share/keyrings/nodesource.gpg
+    force_reinstall: false
+    db_host: "mongodb://{{ hostvars['ec2-db-vm']['ansible_host'] }}:27017/posts"
+  tasks:
+    # - name: Ensure apt-transport-https is installed
+    #   apt:
+    #     name: apt-transport-https
+    #     state: present
+    #     update_cache: yes
+
+    - name: Debug inventory information
+      debug:
+        msg: 
+          - "DB Host: {{ db_host }}"
+          - "Database server IP: {{ hostvars['ec2-db-vm']['ansible_host'] }}"
+      
+    - name: Check if Node.js is already installed and get version
+      command: node --version
+      register: node_check
+      changed_when: false
+      failed_when: false
+      check_mode: no
+
+    - name: Set node installation status
+      set_fact:
+        node_needs_install: "{{ node_check.rc != 0 or 'v20.' not in node_check.stdout | default('') or force_reinstall }}"
+
+    - name: Ensure previous Node.js packages are removed if needed
+      apt:
+        name: "{{ item }}"
+        state: absent
+        purge: yes
+      loop:
+        - nodejs
+        - libnode-dev
+        - npm
+      when: node_needs_install
+
+    - name: Add NodeSource GPG key
+      apt_key:
+        url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
+        state: present
+        keyring: "{{ nodejs_keyring }}"
+      when: node_needs_install
+
+    - name: Add NodeSource repository
+      apt_repository:
+        repo: "deb [signed-by={{ nodejs_keyring }}] https://deb.nodesource.com/node_{{ nodejs_version }} {{ ansible_distribution_release }} main"
+        state: present
+        filename: nodesource
+      when: node_needs_install
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      register: nodejs_install
+      when: node_needs_install
+
+    - name: Get Node.js version
+      command: node --version
+      register: node_version
+      changed_when: false
+      check_mode: no
+
+    - name: Get npm version
+      command: npm --version
+      register: npm_version
+      changed_when: false
+      check_mode: no
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+        state: present
+      register: pm2_install
+
+    - name: Get PM2 version
+      command: pm2 --version
+      register: pm2_version
+      changed_when: false
+      check_mode: no
+      
+    # Nginx setup tasks from prov-web.yml
+    - name: Gather package facts
+      package_facts:
+        manager: auto
+        
+    - name: Update APT package index
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600 # Only update if cache is more than 1 hour old
+        
+    - name: Install Nginx package
+      apt:
+        name: nginx
+        state: present
+      register: nginx_install
+      
+    - name: Ensure Nginx service is enabled and started
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+      register: nginx_service
+      
+    - name: Collect Nginx service facts
+      service_facts:
+      
+    - name: Check if Nginx configuration exists
+      stat:
+        path: /etc/nginx/nginx.conf
+      register: nginx_conf
+      
+    - name: Display Nginx information
+      debug:
+        msg:
+          - "Nginx installed: {{ 'Yes' if 'nginx' in ansible_facts.packages else 'No' }}"
+          - "Nginx version: {{ ansible_facts.packages['nginx'][0].version if 'nginx' in ansible_facts.packages else 'Not installed' }}"
+          - "Nginx service status: {{ 'Active' if ansible_facts.services['nginx.service'].state == 'running' else 'Not running' }}"
+          - "Nginx configuration exists: {{ nginx_conf.stat.exists }}"
+          - "Installation changed: {{ nginx_install.changed }}"
+          - "Service status changed: {{ nginx_service.changed }}"
+      
+    - name: Configure Nginx as reverse proxy
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            
+            root /var/www/html;
+            index index.html index.htm index.nginx-debian.html;
+            server_name _;
+            
+            location / {
+                proxy_pass http://localhost:3000;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_cache_bypass $http_upgrade;
+            }
+          }
+      register: nginx_config_changed
+      notify: Restart Nginx
+      
+    - name: Ensure Nginx sites-enabled directory exists
+      file:
+        path: /etc/nginx/sites-enabled
+        state: directory
+        mode: '0755'
+        
+    - name: Enable Nginx site configuration
+      file:
+        src: /etc/nginx/sites-available/default
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+        force: yes
+      register: nginx_site_enabled
+      
+    - name: Verify app is running on port 3000
+      uri:
+        url: http://localhost:3000
+        method: GET
+        status_code: 200
+      register: app_status
+      failed_when: false
+      changed_when: false
+        
+    - name: Force restart Nginx service
+      service:
+        name: nginx
+        state: restarted
+      when: nginx_config_changed.changed or nginx_site_enabled.changed
+      
+    - name: Verify Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Debug Nginx test
+      debug:
+        var: nginx_test.stdout_lines
+      when: nginx_test is defined
+        
+    - name: Create directory for the app
+      file:
+        path: /repo
+        state: directory
+        mode: "0755"
+
+    - name: Clone or update repository
+      git:
+        repo: https://github.com/stravos97/node-sparta-test-app.git
+        dest: /repo
+        update: yes
+        force: no
+      register: git_result
+
+    - name: Install npm dependencies
+      npm:
+        path: /repo/app
+        state: present
+        ci: false  # Using regular npm install instead of npm ci
+      register: npm_install
+
+    - name: Check if app is running in PM2
+      shell: pm2 list | grep " app " | grep -q "online" || echo ""
+      register: app_check
+      changed_when: false
+      failed_when: false
+      check_mode: no
+
+    - name: Set environmental variable DB_HOST
+      lineinfile:
+        path: /etc/environment
+        regexp: "^DB_HOST="
+        line: 'DB_HOST="{{ db_host }}"'
+        state: present
+      register: env_var_set
+
+    - name: Export DB_HOST in current shell
+      shell: export DB_HOST="{{ db_host }}"
+      changed_when: false
+      
+    - name: Verify DB_HOST is correctly set
+      debug:
+        msg: "Current DB_HOST value: {{ db_host }}"
+
+    - name: Set app running status
+      set_fact:
+        app_running: "{{ app_check.rc == 0 }}"
+        db_host_is_set: true
+
+    - name: Stop any existing PM2 processes to ensure clean restart
+      command: pm2 delete all
+      args:
+        chdir: /repo/app
+      failed_when: false
+      changed_when: true
+      
+    - name: Start app with PM2
+      command: pm2 start app.js
+      args:
+        chdir: /repo/app
+      environment:
+        DB_HOST: "{{ db_host }}"
+      changed_when: true
+      
+    - name: Ensure the database seeding runs
+      command: node seeds/seed.js
+      args:
+        chdir: /repo/app
+      environment:
+        DB_HOST: "{{ db_host }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Display versions
+      debug:
+        msg:
+          - "Node.js version: {{ node_version.stdout }}"
+          - "npm version: {{ npm_version.stdout }}"
+          - "PM2 version: {{ pm2_version.stdout }}"
+          - "Git clone/update result: {{ 'Changed' if git_result.changed else 'No change' }}"
+          - "npm install result: {{ 'Changed' if npm_install.changed else 'No change' }}"
+          
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
