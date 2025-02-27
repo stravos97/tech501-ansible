@@ -7,27 +7,43 @@
       command: mongod --version
       register: mongodb_version
       ignore_errors: true
-    
+
     - name: Display MongoDB version
       debug:
         msg: "MongoDB version {{ mongodb_version.stdout }}"
       when: mongodb_version.rc == 0
-    
+
     - name: Verify MongoDB version is 7.0.6
       fail:
         msg: "MongoDB version is not 7.0.6"
       when: mongodb_version.rc == 0 and not mongodb_version.stdout is search("v7.0.6")
       register: verify_packages_result
-    
-    - name: Change MongoDB "bindIp" setting
-      ansible.builtin.lineinfile:
+
+    - name: Examine the MongoDB configuration file
+      command: cat /etc/mongod.conf
+      register: mongodb_conf
+      changed_when: false
+
+    - name: Change MongoDB "bindIp" setting (nested under net section)
+      ansible.builtin.replace:
         path: /etc/mongod.conf
-        regexp: '^\s*bindIp: 127\.0\.0\.1'
-        line: "bindIp: 0.0.0.0"
+        regexp: '(net:\n(?:[^\n]*\n)*?\s+bindIp:) 127\.0\.0\.1'
+        replace: '\1 0.0.0.0'
+        backup: yes
       register: bindIp_change
-    
+
     - name: Restart MongoDB
       ansible.builtin.systemd:
         name: mongod
         state: restarted
       when: bindIp_change.changed
+
+    - name: Verify MongoDB is listening on all interfaces
+      shell: netstat -tulpn | grep mongod
+      register: mongodb_listening
+      changed_when: false
+      ignore_errors: true
+
+    - name: Display MongoDB listening interfaces
+      debug:
+        msg: "{{ mongodb_listening.stdout_lines }}"
