@@ -44,10 +44,12 @@
           - mongodb-org=7.0.6
           - mongodb-org-database=7.0.6
           - mongodb-org-server=7.0.6
-          - mongodb-mongosh=2.0.2 # Added specific version for better idempotency
+          - mongodb-mongosh
           - mongodb-org-mongos=7.0.6
           - mongodb-org-tools=7.0.6
         state: present
+        force_apt_get: true
+        install_recommends: false
       register: install_packages_result
 
     - name: Hold MongoDB packages at installed version
