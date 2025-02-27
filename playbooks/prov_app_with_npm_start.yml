@@ -104,7 +104,7 @@
       register: npm_install
 
     - name: Check if app is running in PM2
-      shell: pm2 list | grep -q " app " || echo ""
+      shell: pm2 list | grep " app " | grep -q "online" || echo ""
       register: app_check
       changed_when: false
       failed_when: false
@@ -113,7 +113,7 @@
     - name: Set environmental variable DB_HOST
       lineinfile:
         path: /etc/environment
-        regexp: '^DB_HOST='
+        regexp: "^DB_HOST="
         line: 'DB_HOST="{{ db_host }}"'
         state: present
       register: env_var_set
@@ -133,7 +133,7 @@
         chdir: /repo/app
       environment:
         DB_HOST: "{{ db_host }}"
-      when: 
+      when:
         - not app_running | bool
 
     - name: Reload app with PM2 if already running and code changed
