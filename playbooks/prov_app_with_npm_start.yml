@@ -113,11 +113,44 @@
       register: nginx_config_changed
       notify: Restart Nginx
       
-    - name: Force reload Nginx service
+    - name: Ensure Nginx sites-enabled directory exists
+      file:
+        path: /etc/nginx/sites-enabled
+        state: directory
+        mode: '0755'
+        
+    - name: Enable Nginx site configuration
+      file:
+        src: /etc/nginx/sites-available/default
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+        force: yes
+      register: nginx_site_enabled
+      
+    - name: Verify app is running on port 3000
+      uri:
+        url: http://localhost:3000
+        method: GET
+        status_code: 200
+      register: app_status
+      failed_when: false
+      changed_when: false
+        
+    - name: Force restart Nginx service
       service:
         name: nginx
-        state: reloaded
-      when: nginx_config_changed.changed
+        state: restarted
+      when: nginx_config_changed.changed or nginx_site_enabled.changed
+      
+    - name: Verify Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Debug Nginx test
+      debug:
+        var: nginx_test.stdout_lines
+      when: nginx_test is defined
         
     - name: Create directory for the app
       file:
