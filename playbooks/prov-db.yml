@@ -23,12 +23,12 @@
       register: mongodb_conf
       changed_when: false
 
-    # Use yq if available for more reliable YAML editing
-    - name: Check if yq is installed
-      command: which yq
-      register: yq_check
-      ignore_errors: true
-      changed_when: false
+    # # Use yq if available for more reliable YAML editing
+    # - name: Check if yq is installed
+    #   command: which yq
+    #   register: yq_check
+    #   ignore_errors: true
+    #   changed_when: false
 
     # Simple replace method that should work without complex regex
     - name: Update MongoDB bindIp using simple replace

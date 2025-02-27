@@ -129,6 +129,7 @@
 
     - name: Start app with PM2 if not running
       command: pm2 start app.js
+      # command: npm start app.js
       args:
         chdir: /repo/app
       environment:
@@ -144,7 +145,7 @@
         DB_HOST: "{{ db_host }}"
       when:
         - app_running | bool
-        - git_result.changed or npm_install.changed
+        # - git_result.changed or npm_install.changed
 
     - name: Display versions
       debug:
