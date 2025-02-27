@@ -7,12 +7,14 @@
       ansible.builtin.file:
         path: "/etc/apt/sources.list.d/mongodb-org-7.0.list"
         state: absent
+      register: remove_repo_result
 
     - name: Remove MongoDB entries from main sources.list
       ansible.builtin.lineinfile:
         path: /etc/apt/sources.list
         regexp: "deb.*mongodb.*"
         state: absent
+      register: remove_entries_result
 
     - name: Import MongoDB GPG key
       ansible.builtin.shell: |
@@ -21,17 +23,20 @@
         --dearmor
       args:
         creates: /usr/share/keyrings/mongodb-server-7.0.gpg
+      register: import_gpg_result
 
     - name: Add MongoDB repository
       ansible.builtin.apt_repository:
         repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
         state: present
         filename: mongodb-org-7.0
+      register: add_repo_result
 
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: yes
-        cache_valid_time: 0
+        cache_valid_time: 3600 # Improved idempotency by setting cache valid time to 1 hour
+      register: update_cache_result
 
     - name: Install MongoDB 7.0.6 packages
       ansible.builtin.apt:
@@ -39,10 +44,11 @@
           - mongodb-org=7.0.6
           - mongodb-org-database=7.0.6
           - mongodb-org-server=7.0.6
-          - mongodb-mongosh
+          - mongodb-mongosh=2.0.2 # Added specific version for better idempotency
           - mongodb-org-mongos=7.0.6
           - mongodb-org-tools=7.0.6
         state: present
+      register: install_packages_result
 
     - name: Hold MongoDB packages at installed version
       ansible.builtin.dpkg_selections:
@@ -54,3 +60,24 @@
         - mongodb-org-server
         - mongodb-org-mongos
         - mongodb-org-tools
+      register: hold_packages_result
+
+    - name: Display debug information for all tasks
+      ansible.builtin.debug:
+        msg: |
+          Task Results Summary:
+          ---------------------
+          1. Remove repository files: {{ remove_repo_result | to_nice_json }}
+
+          2. Remove sources.list entries: {{ remove_entries_result | to_nice_json }}
+
+          3. Import MongoDB GPG key: {{ import_gpg_result | to_nice_json }}
+
+          4. Add MongoDB repository: {{ add_repo_result | to_nice_json }}
+
+          5. Update apt cache: {{ update_cache_result | to_nice_json }}
+
+          6. Install MongoDB packages: {{ install_packages_result | to_nice_json }}
+
+          7. Hold MongoDB packages: {{ hold_packages_result | to_nice_json }}
+      tags: always
