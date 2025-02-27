@@ -1,0 +1,33 @@
+---
+- name: Check MongoDB Version
+  hosts: db
+  become: true
+  tasks:
+    - name: Check MongoDB version
+      command: mongod --version
+      register: mongodb_version
+      ignore_errors: true
+    
+    - name: Display MongoDB version
+      debug:
+        msg: "MongoDB version {{ mongodb_version.stdout }}"
+      when: mongodb_version.rc == 0
+    
+    - name: Verify MongoDB version is 7.0.6
+      fail:
+        msg: "MongoDB version is not 7.0.6"
+      when: mongodb_version.rc == 0 and not mongodb_version.stdout is search("v7.0.6")
+      register: verify_packages_result
+    
+    - name: Change MongoDB "bindIp" setting
+      ansible.builtin.lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^\s*bindIp: 127\.0\.0\.1'
+        line: "bindIp: 0.0.0.0"
+      register: bindIp_change
+    
+    - name: Restart MongoDB
+      ansible.builtin.systemd:
+        name: mongod
+        state: restarted
+      when: bindIp_change.changed

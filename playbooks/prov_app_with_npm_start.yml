@@ -6,6 +6,7 @@
     nodejs_version: "20.x"
     nodejs_keyring: /usr/share/keyrings/nodesource.gpg
     force_reinstall: false
+    db_host: mongodb://172.31.57.64:27017/posts
   tasks:
     # - name: Ensure apt-transport-https is installed
     #   apt:
@@ -109,20 +110,38 @@
       failed_when: false
       check_mode: no
 
+    - name: Set environmental variable DB_HOST
+      lineinfile:
+        path: /etc/environment
+        regexp: '^DB_HOST='
+        line: 'DB_HOST="{{ db_host }}"'
+        state: present
+      register: env_var_set
+
+    - name: Export DB_HOST in current shell
+      shell: export DB_HOST="{{ db_host }}"
+      changed_when: false
+
     - name: Set app running status
       set_fact:
         app_running: "{{ app_check.rc == 0 }}"
+        db_host_is_set: true
 
     - name: Start app with PM2 if not running
       command: pm2 start app.js
       args:
         chdir: /repo/app
-      when: not app_running | bool
+      environment:
+        DB_HOST: "{{ db_host }}"
+      when: 
+        - not app_running | bool
 
     - name: Reload app with PM2 if already running and code changed
       command: pm2 reload app
       args:
         chdir: /repo/app
+      environment:
+        DB_HOST: "{{ db_host }}"
       when:
         - app_running | bool
         - git_result.changed or npm_install.changed
