@@ -110,7 +110,14 @@
                 proxy_cache_bypass $http_upgrade;
             }
           }
+      register: nginx_config_changed
       notify: Restart Nginx
+      
+    - name: Force reload Nginx service
+      service:
+        name: nginx
+        state: reloaded
+      when: nginx_config_changed.changed
         
     - name: Create directory for the app
       file:
