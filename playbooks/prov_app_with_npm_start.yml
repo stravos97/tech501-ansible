@@ -6,7 +6,7 @@
     nodejs_version: "20.x"
     nodejs_keyring: /usr/share/keyrings/nodesource.gpg
     force_reinstall: false
-    db_host: mongodb://172.31.57.64:27017/posts
+    db_host: "mongodb://{{ hostvars['ec2-db-vm']['ansible_host'] }}:27017/posts"
   tasks:
     # - name: Ensure apt-transport-https is installed
     #   apt:
@@ -14,6 +14,12 @@
     #     state: present
     #     update_cache: yes
 
+    - name: Debug inventory information
+      debug:
+        msg: 
+          - "DB Host: {{ db_host }}"
+          - "Database server IP: {{ hostvars['ec2-db-vm']['ansible_host'] }}"
+      
     - name: Check if Node.js is already installed and get version
       command: node --version
       register: node_check
