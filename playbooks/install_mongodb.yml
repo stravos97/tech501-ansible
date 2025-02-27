@@ -60,3 +60,42 @@
         force_apt_get: true
         install_recommends: false
       register: install_packages_result
+
+    # - name: Hold MongoDB packages at installed version
+    #   ansible.builtin.dpkg_selections:
+    #     name: "{{ item }}"
+    #     selection: hold
+    #   loop:
+    #     - mongodb-org
+    #     - mongodb-org-database
+    #     - mongodb-org-server
+    #     - mongodb-org-mongos
+    #     - mongodb-org-tools
+    #   register: hold_packages_result
+
+    - name: Display debug information for all tasks
+      ansible.builtin.debug:
+        msg:
+          - "MongoDB Repository Status:"
+          - "  Repository file exists: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository content valid: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository check return code: {{ repo_check.rc }}"
+          - ""
+          - "MongoDB GPG Key Status:"
+          - "  GPG key installed: {{ 'Yes' if import_gpg_result is not changed else 'No' }}"
+          - "  GPG key installation changed: {{ import_gpg_result.changed }}"
+          - ""
+          - "Repository Management Status:"
+          - "  Repository file removed: {{ remove_repo_result.changed | default('Task skipped') }}"
+          - "  Sources.list entries removed: {{ remove_entries_result.changed }}"
+          - "  Repository file added: {{ add_repo_result.changed | default('Task skipped') }}"
+          - ""
+          - "Package Management Status:"
+          - "  Apt cache updated: {{ update_cache_result.cache_updated }}"
+          - "  MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
+          - "  Installation changed anything: {{ install_packages_result.changed }}"
+          - ""
+          - "Package Versioning Status:"
+          - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
+          - "  Hold status changed: {{ hold_packages_result.changed }}"
+      tags: always
