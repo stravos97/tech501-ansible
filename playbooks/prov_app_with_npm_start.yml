@@ -101,7 +101,9 @@
       npm:
         path: /repo/app
         state: present
+        ci: false  # Using regular npm install instead of npm ci
       register: npm_install
+      # Removed any conditions to ensure it runs every time
 
     - name: Check if app is running in PM2
       shell: pm2 list | grep " app " | grep -q "online" || echo ""
