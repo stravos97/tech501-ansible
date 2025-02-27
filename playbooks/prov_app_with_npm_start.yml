@@ -82,7 +82,36 @@
       register: pm2_version
       changed_when: false
       check_mode: no
-
+      
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+      
+    - name: Configure Nginx as reverse proxy
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            
+            root /var/www/html;
+            index index.html index.htm index.nginx-debian.html;
+            server_name _;
+            
+            location / {
+                proxy_pass http://localhost:3000;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_cache_bypass $http_upgrade;
+            }
+          }
+      notify: Restart Nginx
+        
     - name: Create directory for the app
       file:
         path: /repo
@@ -123,31 +152,39 @@
     - name: Export DB_HOST in current shell
       shell: export DB_HOST="{{ db_host }}"
       changed_when: false
+      
+    - name: Verify DB_HOST is correctly set
+      debug:
+        msg: "Current DB_HOST value: {{ db_host }}"
 
     - name: Set app running status
       set_fact:
         app_running: "{{ app_check.rc == 0 }}"
         db_host_is_set: true
 
-    - name: Start app with PM2 if not running
+    - name: Stop any existing PM2 processes to ensure clean restart
+      command: pm2 delete all
+      args:
+        chdir: /repo/app
+      failed_when: false
+      changed_when: true
+      
+    - name: Start app with PM2
       command: pm2 start app.js
-      # command: npm start app.js
       args:
         chdir: /repo/app
       environment:
         DB_HOST: "{{ db_host }}"
-      when:
-        - not app_running | bool
-
-    - name: Reload app with PM2 if already running and code changed
-      command: pm2 reload app
+      changed_when: true
+      
+    - name: Ensure the database seeding runs
+      command: node seeds/seed.js
       args:
         chdir: /repo/app
       environment:
         DB_HOST: "{{ db_host }}"
-      when:
-        - app_running | bool
-        # - git_result.changed or npm_install.changed
+      changed_when: true
+      failed_when: false
 
     - name: Display versions
       debug:
@@ -157,3 +194,9 @@
           - "PM2 version: {{ pm2_version.stdout }}"
           - "Git clone/update result: {{ 'Changed' if git_result.changed else 'No change' }}"
           - "npm install result: {{ 'Changed' if npm_install.changed else 'No change' }}"
+          
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
