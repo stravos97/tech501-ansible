@@ -78,42 +78,42 @@
       command: mongod --version
       register: mongodb_version
       ignore_errors: true
-      
+
     - name: Verify MongoDB version is 7.0.6
       fail:
         msg: "MongoDB version is not 7.0.6"
       when: mongodb_version.rc == 0 and not mongodb_version.stdout is search("v7.0.6")
-      
+
     - name: Get MongoDB configuration
       command: cat /etc/mongod.conf
       register: mongodb_conf
       changed_when: false
-      
+
     - name: Update MongoDB bindIp using simple replace
       replace:
         path: /etc/mongod.conf
         regexp: 'bindIp: 127\.0\.0\.1'
         replace: "bindIp: 0.0.0.0"
       register: bindip_change
-      
+
     - name: Restart MongoDB if configuration changed
       systemd:
         name: mongod
         state: restarted
       when: bindip_change.changed
-      
+
     - name: Wait for MongoDB to restart
       wait_for:
         port: 27017
         delay: 5
         timeout: 30
       when: bindip_change.changed
-      
+
     - name: Check if MongoDB is listening
       command: grep "bindIp" /etc/mongod.conf
       register: mongo_listening_check
       changed_when: false
-      
+
     - name: Check MongoDB process status
       command: systemctl status mongod
       register: mongod_status
@@ -230,38 +230,38 @@
       register: pm2_version
       changed_when: false
       check_mode: no
-      
+
     # Nginx setup tasks from prov-web.yml
     - name: Gather package facts
       package_facts:
         manager: auto
-        
+
     - name: Update APT package index
       apt:
         update_cache: yes
         cache_valid_time: 3600 # Only update if cache is more than 1 hour old
-        
+
     - name: Install Nginx package
       apt:
         name: nginx
         state: present
       register: nginx_install
-      
+
     - name: Ensure Nginx service is enabled and started
       service:
         name: nginx
         state: started
         enabled: yes
       register: nginx_service
-      
+
     - name: Collect Nginx service facts
       service_facts:
-      
+
     - name: Check if Nginx configuration exists
       stat:
         path: /etc/nginx/nginx.conf
       register: nginx_conf
-      
+
     - name: Configure Nginx as reverse proxy
       copy:
         dest: /etc/nginx/sites-available/default
@@ -285,13 +285,13 @@
           }
       register: nginx_config_changed
       notify: Restart Nginx
-      
+
     - name: Ensure Nginx sites-enabled directory exists
       file:
         path: /etc/nginx/sites-enabled
         state: directory
-        mode: '0755'
-        
+        mode: "0755"
+
     - name: Enable Nginx site configuration
       file:
         src: /etc/nginx/sites-available/default
@@ -299,18 +299,18 @@
         state: link
         force: yes
       register: nginx_site_enabled
-      
+
     - name: Force restart Nginx service
       service:
         name: nginx
         state: restarted
       when: nginx_config_changed.changed or nginx_site_enabled.changed
-      
+
     - name: Verify Nginx configuration
       command: nginx -t
       register: nginx_test
       changed_when: false
-        
+
     - name: Create directory for the app
       file:
         path: /repo
@@ -329,7 +329,7 @@
       npm:
         path: /repo/app
         state: present
-        ci: false  # Using regular npm install instead of npm ci
+        ci: false # Using regular npm install instead of npm ci
       register: npm_install
 
     - name: Check if app is running in PM2
@@ -350,7 +350,7 @@
     - name: Export DB_HOST in current shell
       shell: export DB_HOST="{{ db_host }}"
       changed_when: false
-      
+
     - name: Set app running status
       set_fact:
         app_running: "{{ app_check.rc == 0 }}"
@@ -362,7 +362,7 @@
         chdir: /repo/app
       failed_when: false
       changed_when: true
-      
+
     - name: Start app with PM2
       command: pm2 start app.js
       args:
@@ -370,7 +370,7 @@
       environment:
         DB_HOST: "{{ db_host }}"
       changed_when: true
-      
+
     - name: Ensure the database seeding runs
       command: node seeds/seed.js
       args:
@@ -379,6 +379,20 @@
         DB_HOST: "{{ db_host }}"
       changed_when: true
       failed_when: false
+
+    # New tasks to check if app is listening on port 3000
+    - name: Check if app is listening on port 3000
+      wait_for:
+        port: 3000
+        timeout: 5
+        state: started
+      register: port_check
+      ignore_errors: true
+
+    - name: Set app status fact
+      set_fact:
+        app_status: "{{ 'Running' if port_check is defined and port_check.state is defined and port_check.state == 'started' else 'Not running' }}"
+      ignore_errors: true
 
     - name: Display Combined App and Nginx Debug Information
       ansible.builtin.debug:
