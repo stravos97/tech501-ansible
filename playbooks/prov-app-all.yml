@@ -74,43 +74,10 @@
     #     - mongodb-org-tools
     #   register: hold_packages_result
 
-    - name: Display debug information for all tasks
-      ansible.builtin.debug:
-        msg:
-          - "MongoDB Repository Status:"
-          - "  Repository file exists: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
-          - "  Repository content valid: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
-          - "  Repository check return code: {{ repo_check.rc }}"
-          - ""
-          - "MongoDB GPG Key Status:"
-          - "  GPG key installed: {{ 'Yes' if import_gpg_result is not changed else 'No' }}"
-          - "  GPG key installation changed: {{ import_gpg_result.changed }}"
-          - ""
-          - "Repository Management Status:"
-          - "  Repository file removed: {{ remove_repo_result.changed | default('Task skipped') }}"
-          - "  Sources.list entries removed: {{ remove_entries_result.changed }}"
-          - "  Repository file added: {{ add_repo_result.changed | default('Task skipped') }}"
-          - ""
-          - "Package Management Status:"
-          - "  Apt cache updated: {{ update_cache_result.cache_updated }}"
-          - "  MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
-          - "  Installation changed anything: {{ install_packages_result.changed }}"
-          - ""
-          # - "Package Versioning Status:"
-          # - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
-          # - "  Hold status changed: {{ hold_packages_result.changed }}"
-      tags: always
-
-    # Additional MongoDB configuration tasks from prov-db.yml
     - name: Check MongoDB version
       command: mongod --version
       register: mongodb_version
       ignore_errors: true
-      
-    - name: Display MongoDB version
-      debug:
-        msg: "MongoDB version {{ mongodb_version.stdout }}"
-      when: mongodb_version.rc == 0
       
     - name: Verify MongoDB version is 7.0.6
       fail:
@@ -147,23 +114,37 @@
       register: mongo_listening_check
       changed_when: false
       
-    - name: Display current MongoDB bind configuration
-      debug:
-        msg: "{{ mongo_listening_check.stdout }}"
-      
-    - name: Display entire MongoDB configuration
-      debug:
-        msg: "{{ mongodb_conf.stdout_lines }}"
-      
     - name: Check MongoDB process status
       command: systemctl status mongod
       register: mongod_status
       changed_when: false
       ignore_errors: true
-      
-    - name: Display MongoDB status
-      debug:
-        msg: "{{ mongod_status.stdout_lines }}"
+
+    - name: Display Combined MongoDB Debug Information
+      ansible.builtin.debug:
+        msg:
+          - "--- MongoDB Debug Information ---"
+          - "Repository Status:"
+          - "  - Repository file exists: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  - Repository content valid: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  - Repository check return code: {{ repo_check.rc }}"
+          - "GPG Key Status:"
+          - "  - GPG key installed: {{ 'Yes' if import_gpg_result is not changed else 'No' }}"
+          - "  - GPG key installation changed: {{ import_gpg_result.changed }}"
+          - "Repository Management Status:"
+          - "  - Repository file removed: {{ remove_repo_result.changed | default('Task skipped') }}"
+          - "  - Sources.list entries removed: {{ remove_entries_result.changed }}"
+          - "  - Repository file added: {{ add_repo_result.changed | default('Task skipped') }}"
+          - "Package Management Status:"
+          - "  - Apt cache updated: {{ update_cache_result.cache_updated }}"
+          - "  - MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
+          - "  - Installation changed anything: {{ install_packages_result.changed }}"
+          - "MongoDB Process Information:"
+          - " - MongoDB Version: {{ mongodb_version.stdout }}"
+          - " - MongoDB listening config: {{ mongo_listening_check.stdout }}"
+          - " - MongoDB process status: {{ mongod_status.stdout_lines }}"
+          - "Entire MongoDB configuration: {{ mongodb_conf.stdout_lines }}"
+      tags: always
 
 # Second play: Configure and provision the app on 'web' group
 - name: Install Node.js and NPM
@@ -181,12 +162,6 @@
     #     state: present
     #     update_cache: yes
 
-    - name: Debug inventory information
-      debug:
-        msg: 
-          - "DB Host: {{ db_host }}"
-          - "Database server IP: {{ hostvars['ec2-db-vm']['ansible_host'] }}"
-      
     - name: Check if Node.js is already installed and get version
       command: node --version
       register: node_check
@@ -287,16 +262,6 @@
         path: /etc/nginx/nginx.conf
       register: nginx_conf
       
-    - name: Display Nginx information
-      debug:
-        msg:
-          - "Nginx installed: {{ 'Yes' if 'nginx' in ansible_facts.packages else 'No' }}"
-          - "Nginx version: {{ ansible_facts.packages['nginx'][0].version if 'nginx' in ansible_facts.packages else 'Not installed' }}"
-          - "Nginx service status: {{ 'Active' if ansible_facts.services['nginx.service'].state == 'running' else 'Not running' }}"
-          - "Nginx configuration exists: {{ nginx_conf.stat.exists }}"
-          - "Installation changed: {{ nginx_install.changed }}"
-          - "Service status changed: {{ nginx_service.changed }}"
-      
     - name: Configure Nginx as reverse proxy
       copy:
         dest: /etc/nginx/sites-available/default
@@ -335,15 +300,6 @@
         force: yes
       register: nginx_site_enabled
       
-    - name: Verify app is running on port 3000
-      uri:
-        url: http://localhost:3000
-        method: GET
-        status_code: 200
-      register: app_status
-      failed_when: false
-      changed_when: false
-        
     - name: Force restart Nginx service
       service:
         name: nginx
@@ -354,11 +310,6 @@
       command: nginx -t
       register: nginx_test
       changed_when: false
-      
-    - name: Debug Nginx test
-      debug:
-        var: nginx_test.stdout_lines
-      when: nginx_test is defined
         
     - name: Create directory for the app
       file:
@@ -400,10 +351,6 @@
       shell: export DB_HOST="{{ db_host }}"
       changed_when: false
       
-    - name: Verify DB_HOST is correctly set
-      debug:
-        msg: "Current DB_HOST value: {{ db_host }}"
-
     - name: Set app running status
       set_fact:
         app_running: "{{ app_check.rc == 0 }}"
@@ -433,15 +380,37 @@
       changed_when: true
       failed_when: false
 
-    - name: Display versions
-      debug:
+    - name: Display Combined App and Nginx Debug Information
+      ansible.builtin.debug:
         msg:
-          - "Node.js version: {{ node_version.stdout }}"
-          - "npm version: {{ npm_version.stdout }}"
-          - "PM2 version: {{ pm2_version.stdout }}"
-          - "Git clone/update result: {{ 'Changed' if git_result.changed else 'No change' }}"
-          - "npm install result: {{ 'Changed' if npm_install.changed else 'No change' }}"
-          
+          - "--- App and Nginx Debug Information ---"
+          - "Inventory Information:"
+          - " - DB Host: {{ db_host }}"
+          - " - Database server IP: {{ hostvars['ec2-db-vm']['ansible_host'] }}"
+          - "Node.js and NPM Status:"
+          - " - Node.js installed: {{ 'Yes' if node_check.rc == 0 else 'No' }}"
+          - " - Node.js version: {{ node_version.stdout }}"
+          - " - npm version: {{ npm_version.stdout }}"
+          - " - PM2 version: {{ pm2_version.stdout }}"
+          - " - Node.js installation needed: {{ node_needs_install }}"
+          - " - Node.js installation result: {{ nodejs_install }}"
+          - "Nginx Status:"
+          - " - Nginx installed: {{ 'Yes' if 'nginx' in ansible_facts.packages else 'No' }}"
+          - " - Nginx version: {{ ansible_facts.packages['nginx'][0].version if 'nginx' in ansible_facts.packages else 'Not installed' }}"
+          - " - Nginx service status: {{ 'Active' if ansible_facts.services['nginx.service'].state == 'running' else 'Not running' }}"
+          - " - Nginx configuration exists: {{ nginx_conf.stat.exists }}"
+          - " - Nginx installation changed: {{ nginx_install.changed }}"
+          - " - Nginx service status changed: {{ nginx_service.changed }}"
+          - " - Nginx test: {{ nginx_test.stdout_lines }}"
+          - "App Deployment Status:"
+          - " - Git clone/update result: {{ 'Changed' if git_result.changed else 'No change' }}"
+          - " - npm install result: {{ 'Changed' if npm_install.changed else 'No change' }}"
+          - " - App running in PM2: {{ 'Yes' if app_check.rc == 0 else 'No' }}"
+          - " - DB_HOST environmental variable set: {{ env_var_set.changed }}"
+          - " - App running status: {{ app_running }}"
+          - " - App in port 3000: {{ app_status }}"
+      tags: always
+
   handlers:
     - name: Restart Nginx
       service:
