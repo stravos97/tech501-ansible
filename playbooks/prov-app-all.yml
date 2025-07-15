@@ -34,9 +34,10 @@
         state: absent
       register: remove_entries_result
 
+    # NOTE: This playbook assumes the target instances are running Ubuntu 'jammy' (22.04 LTS).
     - name: Add MongoDB repository (only if needed)
       ansible.builtin.apt_repository:
-        repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
+        repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
         state: present
         filename: mongodb-org-7.0
       when: repo_check.rc != 0
@@ -154,7 +155,7 @@
     nodejs_version: "20.x"
     nodejs_keyring: /usr/share/keyrings/nodesource.gpg
     force_reinstall: false
-    db_host: "mongodb://{{ hostvars['ec2-db-vm']['ansible_host'] }}:27017/posts"
+    db_host: "mongodb://{{ hostvars[groups['db'][0]].db_instance_internal_ip }}:27017/posts"
   tasks:
     # - name: Ensure apt-transport-https is installed
     #   apt:
@@ -311,6 +312,11 @@
       register: nginx_test
       changed_when: false
 
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
     - name: Create directory for the app
       file:
         path: /repo
@@ -400,7 +406,7 @@
           - "--- App and Nginx Debug Information ---"
           - "Inventory Information:"
           - " - DB Host: {{ db_host }}"
-          - " - Database server IP: {{ hostvars['ec2-db-vm']['ansible_host'] }}"
+          - " - Database server IP: {{ hostvars[groups['db'][0]].ansible_host }}"
           - "Node.js and NPM Status:"
           - " - Node.js installed: {{ 'Yes' if node_check.rc == 0 else 'No' }}"
           - " - Node.js version: {{ node_version.stdout }}"
